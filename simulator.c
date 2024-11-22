@@ -11,27 +11,30 @@ uint32_t pc = 0;
 uint32_t hi;
 uint32_t lo;
 
+int g_lines_read = 0;
+
 char check_extension(const char* filename, const char* extension) {
     // returns 0 if extensions are the same, nonzero otherwise
     size_t filename_len = strlen(filename);
     size_t ext_len = strlen(extension);
     return strcmp(filename + (filename_len - ext_len), extension);
 }
-void load_instructions(const char* filename, const char* extension) {
+char load_instructions(const char* filename, const char* extension) {
     // loads a MIPS machine code (binary file) f onto memory
     FILE* f = fopen(filename, "rb");
     if (f == NULL) {
         perror("Error in opening file");
-        return;
+        return 1;
     }
     if (check_extension(filename, extension)) {
         fprintf(stderr, "File %s does not have the correct extension %s\n", filename, extension);
         fclose(f);
-        return;
+        return 1;
     }
 
     size_t i = 0;
-    while (i < MEMORY_SIZE && fread(&memory[i], sizeof(uint32_t), 1, f) == 1) {
+    while (i < MEMORY_SIZE && (fread(&memory[i], sizeof(uint32_t), 1, f)) == 1) {
+        g_lines_read++;
         i++;
     }
 
@@ -40,6 +43,7 @@ void load_instructions(const char* filename, const char* extension) {
     }
 
     fclose(f);
+    return 0;
 }
 
 // !maybe change switch statements into lookup table for modularity and efficiency...
@@ -52,6 +56,8 @@ void r_type_execute(uint32_t instruction, uint32_t func) {
     uint32_t rd = (instruction >> 11) & 0b11111;
     uint32_t shamt = (instruction >> 6) & 0b11111;
 
+    int64_t result;
+    uint64_t uresult;
     switch (func) {
         case 0b100000: // add
             registers[rd] = registers[rs] + registers[rt];
@@ -77,13 +83,13 @@ void r_type_execute(uint32_t instruction, uint32_t func) {
             break;
 
         case 0b011000: // mult (signed multiplication)
-            int64_t result = (int64_t)registers[rs] * (int64_t)registers[rt];
+            result = (int64_t)registers[rs] * (int64_t)registers[rt];
             lo = (uint32_t)(result & 0xFFFFFFFF);  // Lower 32 bits
             hi = (uint32_t)((result >> 32) & 0xFFFFFFFF);  // Upper 32 bits
             break;
 
         case 0b011001: // multu (unsigned multiplication)
-            uint64_t uresult = (uint64_t)(uint32_t)registers[rs] * (uint64_t)(uint32_t)registers[rt];
+            uresult = (uint64_t)(uint32_t)registers[rs] * (uint64_t)(uint32_t)registers[rt];
             lo = (uint32_t)(uresult & 0xFFFFFFFF);  // Lower 32 bits
             hi = (uint32_t)((uresult >> 32) & 0xFFFFFFFF);  // Upper 32 bits
             break;
@@ -278,14 +284,56 @@ void execute_instruction(uint32_t instruction) {
         r_type_execute(instruction, func);
     }
     else if (opcode == 0x2 || opcode == 0x3) j_type_execute(instruction, opcode); // j and jal
-    else i_type_instruction(instruction, opcode);
+    else i_type_execute(instruction, opcode);
     // add one for system calls?
 }
 // let assembler translate psuedoinstructions like li and lw
 
-int main() {
-    while (pc < MEMORY_SIZE) {
-        execute_instruction(memory[pc]);
-        pc += 1;
+void print_current_register_values() {
+    for (int i=0; i<32; i++) {
+        printf("Register %d has value %d\n", i, registers[i]);
     }
+}
+
+void print_binary(uint32_t num) {
+    printf("0b");
+    for (int i = 31; i >= 0; i--) {
+        printf("%d", (num >> i) & 1);  // Shift and mask each bit
+    }
+    printf("\n");
+}
+
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        printf("Usage: %s <filename>\n", argv[0]);
+        return 1;
+    }
+
+    char* filename = argv[1];
+    printf("%s\n", filename);
+    char* dot = strrchr(filename, '.');
+    char extension[10];
+    if (dot != NULL && dot != filename) {
+        strncpy(extension, dot + 1, sizeof(extension) - 1);
+        extension[sizeof(extension) - 1] = '\0';
+        printf("Extension: %s\n", extension);
+    } else { printf("No extension found.\n"); return 1; }
+
+    load_instructions(argv[1], extension);
+    // printf("In test.txt\n");
+// printf("        001000 00000 01000 0000000000000010 // addi $0, $8, 2\n"
+//        "        001000 01000 00100 0000000000000011 // addi $8, $4, 3\n");
+    
+    printf("\n\n\n");
+
+    for (int i=0;i<32;i++) registers[i] = 0;
+    printf("lineas read %d\n", g_lines_read);
+    while (pc < g_lines_read) {
+        printf("Memory Instruction: "); print_binary(memory[pc]);
+        execute_instruction(memory[pc]);
+        printf("After executing line %d:\n", pc);
+        print_current_register_values();
+        pc++;
+    }
+    return 0;
 }
