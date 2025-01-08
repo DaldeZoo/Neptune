@@ -3,9 +3,11 @@
 #include <stdint.h>
 #include <string.h>
 #define MEMORY_SIZE 1024
-#define REG_ra 31
+#define ZERO_REG 0
+#define RA_REG 31
 
-uint32_t memory[MEMORY_SIZE]; // main memory (RAM) - 1024 rows of words (32-bit instructions)
+uint32_t memory[MEMORY_SIZE]; // main memory (RAM): MEMORY_SIZE rows of words (32-bit instructions)
+// TODO: implement stack
 uint32_t registers[32];
 uint32_t pc = 0;
 uint32_t hi;
@@ -47,116 +49,104 @@ char load_instructions(const char* filename, const char* extension) {
 }
 
 // !maybe change switch statements into lookup table for modularity and efficiency...
-// WAIT WHAT?! Switch statements... O(1)?! Compiler Optimization?!!! GCC?? TF?!
+// WAIT WHAT?! Switch statements... O(1)?! Compiler Optimization?!!! GCC??
 
 // TODO: account for special registers like $zero, $at, etc...
 void r_type_execute(uint32_t instruction, uint32_t func) {
-    uint32_t rs = (instruction >> 21) & 0b11111;
-    uint32_t rt = (instruction >> 16) & 0b11111;
-    uint32_t rd = (instruction >> 11) & 0b11111;
-    uint32_t shamt = (instruction >> 6) & 0b11111;
+    uint32_t rs = (instruction >> 21) & 0x1F;
+    uint32_t rt = (instruction >> 16) & 0x1F;
+    uint32_t rd = (instruction >> 11) & 0x1F;
+    uint32_t shamt = (instruction >> 6) & 0x1F;
 
     int64_t result;
     uint64_t uresult;
     switch (func) {
-        case 0b100000: // add
-            registers[rd] = registers[rs] + registers[rt];
+        case 0x20: // add
+            if (rd != ZERO_REG) registers[rd] = registers[rs] + registers[rt];
             // overflow check
             break;
 
-        case 0b100001: // addu
-            registers[rd] = registers[rs] + registers[rt];
+        case 0x21: // addu
+            if (rd != ZERO_REG) registers[rd] = registers[rs] + registers[rt];
             break;
 
-        case 0b011010: // div
+        case 0x1A: // div
             if (registers[rt] != 0) {
                 lo = registers[rs] / registers[rt];
                 hi = registers[rs] % registers[rt];
             }
             break;
 
-        case 0b011011: // divu
+        case 0x1B: // divu
             if (registers[rt] != 0) {
                 lo = (unsigned int)registers[rs] / (unsigned int)registers[rt];
                 hi = (unsigned int)registers[rs] % (unsigned int)registers[rt];
             }
             break;
 
-        case 0b011000: // mult (signed multiplication)
+        case 0x18: // mult (signed multiplication)
             result = (int64_t)registers[rs] * (int64_t)registers[rt];
             lo = (uint32_t)(result & 0xFFFFFFFF);  // Lower 32 bits
             hi = (uint32_t)((result >> 32) & 0xFFFFFFFF);  // Upper 32 bits
             break;
 
-        case 0b011001: // multu (unsigned multiplication)
+        case 0x19: // multu (unsigned multiplication)
             uresult = (uint64_t)(uint32_t)registers[rs] * (uint64_t)(uint32_t)registers[rt];
             lo = (uint32_t)(uresult & 0xFFFFFFFF);  // Lower 32 bits
             hi = (uint32_t)((uresult >> 32) & 0xFFFFFFFF);  // Upper 32 bits
             break;
 
-        case 0b100010: // sub
+        case 0x22: // sub
             registers[rd] = registers[rs] - registers[rt];
             // overflow check
             break;
 
-        case 0b100011: // subu
+        case 0x23: // subu
             registers[rd] = registers[rs] - registers[rt];
             break;
 
-        case 0b100100: // and
+        case 0x24: // and
             registers[rd] = registers[rs] & registers[rt];
             break;
 
-        case 0b100101: // or
+        case 0x25: // or
             registers[rd] = registers[rs] | registers[rt];
             break;
 
-        case 0b100110: // xor
+        case 0x26: // xor
             registers[rd] = registers[rs] ^ registers[rt];
             break;
 
-        case 0b100111: // nor
+        case 0x27: // nor
             registers[rd] = ~(registers[rs] | registers[rt]);
             break;
 
-        case 0b000000: // sll
+        case 0x0: // sll
             registers[rd] = registers[rt] << shamt;
             break;
 
-        case 0b000010: // srl
+        case 0x2: // srl
             registers[rd] = registers[rt] >> shamt;
             break;
 
-        case 0b000011: // sra
+        case 0x3: // sra
             registers[rd] = (int)registers[rt] >> shamt;
             break;
 
-        case 0b000100: // sllv (shift left logical variable)
-            registers[rd] = registers[rt] << registers[rs];  // Shift left by the value in rs
-            break;
-
-        case 0b000110: // srlv (shift right logical variable)
-            registers[rd] = registers[rt] >> registers[rs];  // Shift right by the value in rs
-            break;
-
-        case 0b000111: // srav (shift right arithmetic variable)
-            registers[rd] = (int)registers[rt] >> registers[rs];  // Arithmetic shift right by the value in rs
-            break;
-
-        case 0b010010: // mflo (move from LO register)
+        case 0x12: // mflo (move from LO register)
             registers[rd] = lo;  // Move the value from the LO register to the destination register (rd)
             break;
 
-        case 0b010001: // mfhi (move from HI register)
+        case 0x10: // mfhi (move from HI register)
             registers[rd] = hi;  // Move the value from the HI register to the destination register (rd)
             break;
         
-        case 0b001001: // jalr
-            registers[REG_ra] = pc + 1;  // Save return address in $ra (register 31)
+        case 0x09: // jalr
+            registers[RA_REG] = pc + 1;  // Save return address in $ra (register 31)
             pc = registers[rs];      // Jump to the address in register $rs
             break;
         
-        case 0b001000: // jr
+        case 0x08: // jr
             pc = registers[rs];  // Jump to the address in register $rs
             break;
     }
@@ -171,14 +161,14 @@ void j_type_execute(uint32_t instruction, uint32_t opcode) {
             break;
 
         case 0x3: // jal (Jump and Link)
-            registers[REG_ra] = pc + 1;  // Store the return address in $ra (address of next instruction)
+            registers[RA_REG] = pc + 1;  // Store the return address in $ra (address of next instruction)
             pc = (pc & 0xF0000000) | (address << 2);  // Set the program counter to the jump address
             break;
     }
 }
 void i_type_execute(uint32_t instruction, uint32_t opcode) {
-    uint32_t rs = (instruction >> 21) & 0b11111;
-    uint32_t rt = (instruction >> 16) & 0b11111;
+    uint32_t rs = (instruction >> 21) & 0x1F;
+    uint32_t rt = (instruction >> 16) & 0x1F;
     uint32_t immediate = instruction & 0xFFFF;         // Extract immediate (16 bits)
     int32_t signed_immediate = (int16_t)immediate;    // Sign-extend the immediate for signed operations
 
@@ -277,10 +267,10 @@ void i_type_execute(uint32_t instruction, uint32_t opcode) {
 
 void execute_instruction(uint32_t instruction) {
     // decodes and executes instruction
-    uint32_t opcode = (instruction >> 26) & 0b111111; // extract last 6/32 bits
+    uint32_t opcode = (instruction >> 26) & 0x3F; // extract last 6/32 bits
 
-    if (opcode == 0x00000000) {
-        uint32_t func = instruction & 0b111111; // extract first 6 (im reading right to left)
+    if (opcode == 0x0) {
+        uint32_t func = instruction & 0x3F; // extract first 6 bits
         r_type_execute(instruction, func);
     }
     else if (opcode == 0x2 || opcode == 0x3) j_type_execute(instruction, opcode); // j and jal
@@ -321,8 +311,8 @@ int main(int argc, char** argv) {
 
     load_instructions(argv[1], extension);
     // printf("In test.txt\n");
-// printf("        001000 00000 01000 0000000000000010 // addi $0, $8, 2\n"
-//        "        001000 01000 00100 0000000000000011 // addi $8, $4, 3\n");
+    // printf("        001000 00000 01000 0000000000000010 // addi $0, $8, 2\n"
+    //        "        001000 01000 00100 0000000000000011 // addi $8, $4, 3\n");
     
     printf("\n\n\n");
 
@@ -337,3 +327,5 @@ int main(int argc, char** argv) {
     }
     return 0;
 }
+
+// hmmm...
